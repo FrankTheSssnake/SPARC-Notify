@@ -23,6 +23,15 @@
             android:textColor="@android:color/white"
             android:text="UserID" />
 
+        <ImageButton
+            android:id="@+id/typeSelectorButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@android:drawable/ic_menu_manage"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/select_types"
+            android:padding="8dp" />
+
         <TextView
             android:id="@+id/removeText"
             android:layout_width="wrap_content"

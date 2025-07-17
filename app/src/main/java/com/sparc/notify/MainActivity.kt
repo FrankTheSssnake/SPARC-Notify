@@ -22,11 +22,20 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.firebase.messaging.FirebaseMessaging
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import org.json.JSONObject
+import org.json.JSONArray
 
 class MainActivity : AppCompatActivity() {
     private lateinit var adapter: PatientCodeAdapter
     private lateinit var prefs: android.content.SharedPreferences
     private val PREFS_KEY = "patient_codes"
+    private val ALL_TYPES = listOf("FOOD", "DOCTOR_CALL", "RESTROOM", "EMERGENCY")
+    private val TYPE_DISPLAY_NAMES = mapOf(
+        "FOOD" to "Food",
+        "DOCTOR_CALL" to "Doctor Call",
+        "RESTROOM" to "Restroom",
+        "EMERGENCY" to "Emergency"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,8 +54,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         prefs = getSharedPreferences("codes", Context.MODE_PRIVATE)
-        val codeList = loadCodes().toMutableList()
-        adapter = PatientCodeAdapter(codeList, ::removeCode)
+        val codeMap = loadCodeMap().mapValues { it.value.toMutableSet() }.toMutableMap()
+        adapter = PatientCodeAdapter(codeMap, ::removeCode, ::showTypeDialog)
 
         val recyclerView = findViewById<RecyclerView>(R.id.patientCodeList)
         recyclerView.layoutManager = LinearLayoutManager(this)
@@ -88,34 +97,81 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addCode(code: String) {
-        val codes = loadCodes().toMutableSet()
-        if (codes.add(code)) {
-            saveCodes(codes)
-            adapter.addCode(code)
+        val codeMap = loadCodeMap().toMutableMap()
+        if (!codeMap.containsKey(code)) {
+            codeMap[code] = ALL_TYPES.toMutableSet()
+            saveCodeMap(codeMap)
+            adapter.addCode(code, ALL_TYPES.toMutableSet())
             FirebaseMessaging.getInstance().subscribeToTopic(code)
         }
     }
 
     private fun removeCode(code: String) {
-        val codes = loadCodes().toMutableSet()
-        if (codes.remove(code)) {
-            saveCodes(codes)
+        val codeMap = loadCodeMap().toMutableMap()
+        if (codeMap.remove(code) != null) {
+            saveCodeMap(codeMap)
             adapter.removeCode(code)
             FirebaseMessaging.getInstance().unsubscribeFromTopic(code)
         }
     }
 
-    private fun loadCodes(): Set<String> = prefs.getStringSet(PREFS_KEY, emptySet()) ?: emptySet()
-    private fun saveCodes(codes: Set<String>) = prefs.edit().putStringSet(PREFS_KEY, codes).apply()
+    private fun loadCodeMap(): Map<String, Set<String>> {
+        val value = prefs.all[PREFS_KEY]
+        val json = when (value) {
+            is String -> value
+            else -> null // Not a string, treat as empty
+        } ?: return emptyMap()
+        val obj = JSONObject(json)
+        val map = mutableMapOf<String, Set<String>>()
+        for (key in obj.keys()) {
+            val arr = obj.getJSONArray(key)
+            val set = mutableSetOf<String>()
+            for (i in 0 until arr.length()) {
+                set.add(arr.getString(i))
+            }
+            map[key] = set
+        }
+        return map
+    }
+
+    private fun saveCodeMap(map: Map<String, Set<String>>) {
+        val obj = JSONObject()
+        for ((key, set) in map) {
+            obj.put(key, JSONArray(set.toList()))
+        }
+        prefs.edit().putString(PREFS_KEY, obj.toString()).apply()
+    }
+
+    private fun showTypeDialog(code: String) {
+        val codeMap = loadCodeMap().toMutableMap()
+        val currentTypes = codeMap[code]?.toMutableSet() ?: ALL_TYPES.toMutableSet()
+        val typeArray = ALL_TYPES.toTypedArray()
+        val displayArray = ALL_TYPES.map { TYPE_DISPLAY_NAMES[it] ?: it }.toTypedArray()
+        val checked = typeArray.map { currentTypes.contains(it) }.toBooleanArray()
+        AlertDialog.Builder(this)
+            .setTitle("Select notification types")
+            .setMultiChoiceItems(displayArray, checked) { _, which, isChecked ->
+                if (isChecked) currentTypes.add(typeArray[which]) else currentTypes.remove(typeArray[which])
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                codeMap[code] = currentTypes
+                saveCodeMap(codeMap)
+                adapter.updateTypes(code, currentTypes)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
 }
 
 class PatientCodeAdapter(
-    private val codes: MutableList<String>,
-    private val onRemove: (String) -> Unit
+    private val codes: MutableMap<String, MutableSet<String>>,
+    private val onRemove: (String) -> Unit,
+    private val onShowTypes: (String) -> Unit
 ) : RecyclerView.Adapter<PatientCodeAdapter.CodeViewHolder>() {
     class CodeViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val codeText: TextView = view.findViewById(R.id.codeText)
         val removeText: TextView = view.findViewById(R.id.removeText)
+        val typeSelectorButton: android.widget.ImageButton = view.findViewById(R.id.typeSelectorButton)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CodeViewHolder {
@@ -124,23 +180,28 @@ class PatientCodeAdapter(
     }
 
     override fun onBindViewHolder(holder: CodeViewHolder, position: Int) {
-        val code = codes[position]
+        val (code, types) = codes.entries.elementAt(position)
         holder.codeText.text = code
         holder.removeText.setOnClickListener { onRemove(code) }
+        holder.typeSelectorButton.setOnClickListener { onShowTypes(code) }
     }
 
     override fun getItemCount(): Int = codes.size
 
-    fun addCode(code: String) {
-        codes.add(code)
+    fun addCode(code: String, types: MutableSet<String>) {
+        codes[code] = types
         notifyItemInserted(codes.size - 1)
     }
 
     fun removeCode(code: String) {
-        val idx = codes.indexOf(code)
-        if (idx != -1) {
-            codes.removeAt(idx)
-            notifyItemRemoved(idx)
+        val removed = codes.remove(code)
+        if (removed != null) {
+            notifyItemRemoved(codes.size) // Adjust index for new size
         }
+    }
+
+    fun updateTypes(code: String, types: MutableSet<String>) {
+        codes[code] = types
+        notifyItemChanged(codes.entries.indexOfFirst { it.key == code })
     }
 }

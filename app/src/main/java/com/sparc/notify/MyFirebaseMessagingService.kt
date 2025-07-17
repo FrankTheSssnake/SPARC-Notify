@@ -11,6 +11,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import org.json.JSONObject
 
 class MyFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
@@ -22,40 +23,72 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         super.onMessageReceived(remoteMessage)
         Log.i("FCM", "Message received from: ${remoteMessage.from}")
         Log.i("FCM", "Message data: ${remoteMessage.data}")
-        remoteMessage.notification?.let {
-            Log.i("FCM", "Notification title: ${it.title}")
-            Log.i("FCM", "Notification body: ${it.body}")
-            showNotification(it.title, it.body)
+        val type = remoteMessage.data["type"] ?: ""
+        val code = remoteMessage.from?.removePrefix("/topics/") ?: ""
+        if (shouldShowNotification(this, code, type)) {
+            remoteMessage.notification?.let {
+                Log.i("FCM", "Notification title: ${it.title}")
+                Log.i("FCM", "Notification body: ${it.body}")
+                showNotification(it.title, it.body, type)
+            }
+        } else {
+            Log.i("FCM", "Notification for code=$code and type=$type filtered out by user preferences.")
         }
     }
 
-    private fun showNotification(title: String?, body: String?) {
-        val channelId = "emergency_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId,
-                "Emergency Notifications",
-                NotificationManager.IMPORTANCE_HIGH
-            )
+    private fun shouldShowNotification(context: Context, code: String, type: String): Boolean {
+        val prefs = context.getSharedPreferences("codes", Context.MODE_PRIVATE)
+        val json = prefs.getString("patient_codes", null) ?: return false
+        val obj = JSONObject(json)
+        if (!obj.has(code)) return false
+        val arr = obj.getJSONArray(code)
+        for (i in 0 until arr.length()) {
+            if (arr.getString(i).equals(type, ignoreCase = true)) return true
+        }
+        return false
+    }
+
+    private fun showNotification(title: String?, body: String?, type: String?) {
+        val channelId = if (type.equals("EMERGENCY", ignoreCase = true)) {
+            "emergency_channel"
+        } else {
+            "default_channel"
+        }
+        val soundUri = if (type.equals("EMERGENCY", ignoreCase = true)) {
+            android.net.Uri.parse("android.resource://" + packageName + "/" + R.raw.emergency)
+        } else {
+            android.provider.Settings.System.DEFAULT_NOTIFICATION_URI
+        }
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            val channelName = if (type.equals("EMERGENCY", ignoreCase = true)) {
+                "Emergency Notifications"
+            } else {
+                "Default Notifications"
+            }
+            val importance = android.app.NotificationManager.IMPORTANCE_HIGH
+            val channel = android.app.NotificationChannel(channelId, channelName, importance)
             channel.enableVibration(true)
             channel.enableLights(true)
-            channel.lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
-            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            channel.lockscreenVisibility = androidx.core.app.NotificationCompat.VISIBILITY_PUBLIC
+            channel.setSound(soundUri, null)
+            val manager = getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             manager.createNotificationChannel(channel)
         }
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        val intent = android.content.Intent(this, MainActivity::class.java).apply {
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
-        val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        val builder = NotificationCompat.Builder(this, channelId)
+        val pendingIntent = android.app.PendingIntent.getActivity(this, 0, intent, android.app.PendingIntent.FLAG_IMMUTABLE)
+        val builder = androidx.core.app.NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title ?: "SPARC Notify")
             .setContentText(body ?: "")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(androidx.core.app.NotificationCompat.DEFAULT_ALL)
+            .setSound(soundUri)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-        with(NotificationManagerCompat.from(this)) {
+        with(androidx.core.app.NotificationManagerCompat.from(this)) {
             notify(System.currentTimeMillis().toInt(), builder.build())
         }
     }
