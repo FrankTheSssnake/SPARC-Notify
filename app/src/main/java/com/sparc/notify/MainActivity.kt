@@ -64,11 +64,26 @@ class MainActivity : AppCompatActivity() {
             .setView(view)
             .setPositiveButton(android.R.string.ok) { _: DialogInterface, _: Int ->
                 val code = input.text.toString().trim()
-                if (code.isNotEmpty()) {
+                if (isValidUserId(code)) {
                     addCode(code)
+                } else {
+                    showInvalidUserIdDialog()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun isValidUserId(code: String): Boolean {
+        // Only A-Z, a-z, 0-9, exactly 5 characters
+        return code.matches(Regex("^[A-Za-z0-9]{5}$"))
+    }
+
+    private fun showInvalidUserIdDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Invalid UserID")
+            .setMessage("• UserID must be exactly 5 characters long\n• It must contain only letters and digits (A-Z, a-z, 0-9).\n• No spaces or special characters allowed.")
+            .setPositiveButton(android.R.string.ok, null)
             .show()
     }
 
