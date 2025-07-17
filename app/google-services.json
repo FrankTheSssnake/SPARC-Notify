@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "952719761423",
+    "project_id": "sparc-8b7af",
+    "storage_bucket": "sparc-8b7af.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:952719761423:android:66de614ef99e47b6cfc37a",
+        "android_client_info": {
+          "package_name": "com.sparc.notify"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB6mdJ1eZTcNRofpUm9PLHdMB7UurfGq40"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
